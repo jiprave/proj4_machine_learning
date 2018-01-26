@@ -1,0 +1,212 @@
+---
+title: "finalproject"
+author: "JPR"
+date: "26 de enero de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE, eval = TRUE)
+
+library(caret)
+library(psych)
+library(rattle)
+library(randomForest)
+library(knitr)
+library(kableExtra)
+
+fun.nas<-function(x){
+    
+    nas.count<-length(x[is.na(x)==T | x=="" | x==0])
+    nas.count
+    
+}
+
+
+clasi<-function(x){
+    
+    class(x)
+    
+}
+
+```
+
+##Machine Learning_Coursera
+
+
+## 1. Course project
+
+**Source of data:** Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. http://groupware.les.inf.puc-rio.br/har. 
+
+**Description:** "The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases." (Coursera).
+
+&nbsp;
+
+## 2. Preparing data
+
+```{r preparing}
+
+#Reading data:
+
+data0<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", header = T, sep=",")
+
+data.pred<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", header = T, sep=",")
+
+
+#Exploring variables that have less than 80% of the complete observations
+
+count.nas<-apply(data0,2,fun.nas)
+count.nas[count.nas > 0.2*nrow(data0)]
+nomb.completes<-names(count.nas[count.nas <= 0.8*nrow(data0)])
+
+#New dataset with more complete observations
+
+data0<-subset(data0,select = nomb.completes)
+
+#Validing nas
+
+count.nas<-apply(data0,2,fun.nas)
+count.nas[count.nas>0.2*nrow(data0)]
+
+
+#Final sample remove id variables and non-numerical
+
+data0<-subset(data0, select = c(8:ncol(data0)))
+
+mat.cor<-round(cor(data0[,-53]),2)
+
+diag(mat.cor)=0
+
+#Verifying extreme redundants
+which(abs(mat.cor)==1,arr.ind=TRUE)
+
+#Possible redundants (heurism):
+redu<-which(abs(mat.cor)>= 0.90,arr.ind=TRUE)[,2]
+
+#Next depuration: hightly related with three or more variables:
+redu<-table(redu)
+redu
+redu<-names(redu[redu>2])
+redu<--as.numeric(redu)
+data0<-subset(data0, select = redu) #Final sample stage one
+```
+
+&nbsp;
+
+## 3. Training the models (Cross validation was used according to the task description)
+
+Three methods well be used: Clasification Tree (CT), Linear Discriminant Analysis (LDA) and Random Forest using PCA (RFPCA). The first two  using the original variables as predictors, and the last method using principal components as predictors (considering that it consumes a lot of computational time). The task indicates that the **cross validation** must be used.
+
+&nbsp;
+
+###3.1 Classification Tree
+
+```{r CT}
+#Run in block
+#3.1 Classification Tree.
+t.ct.ini<-Sys.time()
+mod_ct <- train(classe ~ ., data = data0, method = "rpart",
+                trControl=trainControl(method = "cv", number = 10))
+t.ct.fin<-Sys.time()
+
+dura.ct<-t.ct.fin-t.ct.ini
+dura.ct
+mod_ct
+Accuracy<-mean(mod_ct$resample$Accuracy)
+Duration<-dura.ct
+Methods<-"Class.Tree"
+
+#Plots:
+fancyRpartPlot(mod_ct$finalModel)
+
+```
+
+&nbsp;
+
+###3.2 Random Forest with PCA. 
+
+```{r RFPCA}
+#Obtaining the principal components:
+pca<-preProcess(data0[,-ncol(data0)], method = "pca", thresh = 0.80)
+pca
+xpca<-predict(pca,data0[,-ncol(data0)])
+data0.rfpca<-data.frame(xpca,data0$classe)
+colnames(data0.rfpca)<-c(names(xpca), "classe")
+head(data0.rfpca)
+
+#Training the model. Run in block
+t.rfpca.ini<-Sys.time()
+mod_rfpca <- train(classe ~ ., data = data0.rfpca, method = "rf",
+                   trControl=trainControl(method = "cv", number = 10))
+t.rfpca.fin<-Sys.time()
+
+dura.rfpca<-t.rfpca.fin-t.rfpca.ini
+dura.rfpca
+mod_rfpca
+
+Accuracy<-c(Accuracy,mean(mod_rfpca$resample$Accuracy))
+Duration<-c(Duration,dura.rfpca)
+Methods<-c(Methods, "Rand.Forest_PCA")
+
+#Variable importance:
+varImpPlot(mod_rfpca$finalModel,type=2)
+
+```
+
+&nbsp;
+
+#3.3 Linear Discriminant Analysis. 
+
+```{r LDA}
+#Run in block
+t.lda.ini<-Sys.time()
+mod_lda <- train(classe ~ ., data = data0, method = "lda", 
+                 trControl=trainControl(method = "cv", number = 10))
+t.lda.fin<-Sys.time()
+
+dura.lda<-t.lda.fin-t.lda.ini
+dura.lda
+mod_lda
+
+Accuracy<-c(Accuracy,mean(mod_lda$resample$Accuracy))
+Duration<-c(Duration,dura.lda)
+Methods<-c(Methods, "LD.Analysis")
+
+```
+
+&nbsp;
+
+##4. Consolidated results
+
+```{r cons_result}
+
+results<-data.frame(Methods,Accuracy,Duration)
+
+kable(results, digits=2, format = "html")%>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+```
+
+&nbsp;
+
+**Considering as example only accuracy, RFPCA is used**
+
+&nbsp;
+
+
+## 5.Predictions
+
+**Note**: the specific predictions are not shown.
+
+```{r predictions, eval=FALSE}
+
+data.pred.pca<-predict(pca,data.pred)
+data.pred.pca<-subset(data.pred.pca, select = c(113:125))
+names(data.pred.pca)
+
+predict(mod_rfpca, newdata = data.pred.pca)
+
+```
+
+&nbsp;
+
