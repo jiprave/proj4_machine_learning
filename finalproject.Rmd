@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache=TRUE, eval = TRUE)
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE)
 
 library(caret)
 library(psych)
